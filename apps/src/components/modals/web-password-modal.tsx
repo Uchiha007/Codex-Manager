@@ -33,6 +33,25 @@ interface WebPasswordModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function billingModeLockReasonLabel(reason: string): string {
+  switch (reason) {
+    case "member_users":
+      return "已存在成员账号";
+    case "api_key_owners":
+      return "已存在平台 Key 归属";
+    case "wallet_balance":
+      return "已存在成员钱包余额";
+    case "wallet_ledger":
+      return "已存在钱包流水";
+    case "model_group_assignments":
+      return "已存在模型组成员分配";
+    case "request_charges":
+      return "已存在请求扣费记录";
+    default:
+      return reason;
+  }
+}
+
 /**
  * 函数 `WebPasswordModal`
  *
@@ -57,6 +76,22 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
     Boolean(appSettings.distributionEnabled)
   );
   const [isLoading, setIsLoading] = useState(false);
+  const billingModeLock = appSettings.billingModeLock ?? {
+    accountModeLocked: false,
+    distributionLocked: false,
+    reasons: [],
+  };
+  const accountModeLocked = Boolean(billingModeLock.accountModeLocked);
+  const distributionLocked = Boolean(billingModeLock.distributionLocked);
+  const distributionRequiresAccounts = webAuthMode !== "accounts";
+  const distributionSwitchDisabled =
+    !canAccessManagementRpc ||
+    isLoading ||
+    distributionRequiresAccounts ||
+    (appSettings.distributionEnabled && distributionLocked);
+  const lockReasonLabels = billingModeLock.reasons.map((reason) =>
+    t(billingModeLockReasonLabel(reason))
+  );
 
   useEffect(() => {
     setWebAuthMode(appSettings.webAuthMode || "none");
@@ -137,6 +172,18 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
       !password
     ) {
       toast.error(t("新密码"));
+      return;
+    }
+    if (accountModeLocked && appSettings.webAuthMode === "accounts" && webAuthMode !== "accounts") {
+      toast.error(t("已进入账号计费模式，不能从界面关闭账号系统。"));
+      return;
+    }
+    if (distributionEnabled && webAuthMode !== "accounts") {
+      toast.error(t("请先启用账号系统，再开启额度分发。"));
+      return;
+    }
+    if (appSettings.distributionEnabled && distributionLocked && !distributionEnabled) {
+      toast.error(t("已进入账号计费模式，不能从界面关闭额度分发。"));
       return;
     }
 
@@ -245,7 +292,12 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
               value={webAuthMode}
               disabled={!canAccessManagementRpc || isLoading}
               onValueChange={(value) => {
-                if (value) setWebAuthMode(value);
+                if (!value) return;
+                if (accountModeLocked && value !== "accounts") return;
+                setWebAuthMode(value);
+                if (value !== "accounts") {
+                  setDistributionEnabled(false);
+                }
               }}
             >
               <SelectTrigger id="web-auth-mode" className="w-full">
@@ -259,17 +311,24 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">{t("不启用")}</SelectItem>
-                <SelectItem value="password">{t("访问密码")}</SelectItem>
+                <SelectItem value="none" disabled={accountModeLocked}>
+                  {t("不启用")}
+                </SelectItem>
+                <SelectItem value="password" disabled={accountModeLocked}>
+                  {t("访问密码")}
+                </SelectItem>
                 <SelectItem value="accounts">{t("账号系统")}</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
               {webAuthMode === "accounts"
-                ? t("适合多人使用：管理员维护成员账号，成员按归属钱包消费额度。")
+                  ? t("适合多人使用：管理员维护成员账号，成员按归属钱包消费额度。")
                 : webAuthMode === "password"
                   ? t("适合个人或小团队：所有访问者共用同一个访问密码。")
                   : t("公开访问不会拦截 Web 管理页，请只在本机可信环境使用。")}
+              {accountModeLocked
+                ? ` ${t("已进入账号计费模式，不能从界面关闭账号系统。")}`
+                : ""}
             </p>
           </div>
 
@@ -279,16 +338,31 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
               <div>
                 <div className="text-sm font-medium">{t("额度分发")}</div>
                 <div className="text-xs text-muted-foreground">
-                  {t("启用后平台 Key 需要归属到用户或项目钱包")}
+                  {distributionRequiresAccounts
+                    ? t("请先启用账号系统，再开启额度分发。")
+                    : appSettings.distributionEnabled && distributionLocked
+                      ? t("已进入账号计费模式，不能从界面关闭额度分发。")
+                      : t("启用后平台 Key 需要归属到成员钱包")}
                 </div>
               </div>
             </div>
             <Switch
               checked={distributionEnabled}
-              disabled={!canAccessManagementRpc || isLoading}
+              disabled={distributionSwitchDisabled}
               onCheckedChange={setDistributionEnabled}
             />
           </div>
+
+          {(accountModeLocked || distributionLocked) && lockReasonLabels.length > 0 ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+              <div className="font-medium">
+                {t("已进入账号计费模式。为避免权限绕过和账务断层，不能从界面关闭账号系统或额度分发。")}
+              </div>
+              <div className="mt-1 text-xs">
+                {t("锁定原因")}: {lockReasonLabels.join("、")}
+              </div>
+            </div>
+          ) : null}
 
           {webAuthMode === "password" ? (
             <div className="grid gap-3 rounded-lg border border-border/60 bg-background/35 p-3">

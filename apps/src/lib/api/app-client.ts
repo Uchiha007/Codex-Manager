@@ -14,6 +14,7 @@ import {
   ModelGroupModel,
   UserModelGroup,
 } from "../../types";
+import { readBillingModeLock } from "./billing-mode-lock";
 import { normalizeAppSettings } from "./normalize";
 import {
   readUpdateActionResult,
@@ -156,6 +157,7 @@ function readAccountManagerStatus(value: unknown): AccountManagerStatus {
     appUserCount: asNumber(source.appUserCount),
     activeAdminCount: asNumber(source.activeAdminCount),
     distributionEnabled: asBoolean(source.distributionEnabled),
+    billingModeLock: readBillingModeLock(source.billingModeLock),
   };
 }
 
@@ -191,6 +193,7 @@ function readAppSession(value: unknown): AppSessionResult {
     role: readAppRole(source.role),
     permissions: readPermissions(source.permissions),
     distributionEnabled: asBoolean(source.distributionEnabled),
+    billingModeLock: readBillingModeLock(source.billingModeLock),
   };
 }
 

@@ -766,6 +766,11 @@ pub(super) async fn auth_status(headers: HeaderMap) -> impl IntoResponse {
             "passwordConfigured": current_web_access_password_hash().is_some(),
             "appUsersConfigured": false,
             "distributionEnabled": false,
+            "billingModeLock": {
+                "accountModeLocked": false,
+                "distributionLocked": false,
+                "reasons": []
+            },
         })
     });
     let actor = current_app_session_from_headers(&headers)

@@ -259,6 +259,19 @@ pub(super) fn current_app_settings_value(
             distribution_enabled().into(),
         );
         object.insert(
+            "billingModeLock".to_string(),
+            auth_status
+                .get("billingModeLock")
+                .cloned()
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "accountModeLocked": false,
+                        "distributionLocked": false,
+                        "reasons": []
+                    })
+                }),
+        );
+        object.insert(
             "appUsersConfigured".to_string(),
             auth_status
                 .get("appUsersConfigured")

@@ -81,6 +81,14 @@ impl Storage {
             .query_row("SELECT COUNT(*) FROM app_users", [], |row| row.get(0))
     }
 
+    pub fn member_app_user_count(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM app_users WHERE role = 'member'",
+            [],
+            |row| row.get(0),
+        )
+    }
+
     pub fn active_admin_count(&self) -> Result<i64> {
         self.conn.query_row(
             "SELECT COUNT(*) FROM app_users WHERE role = 'admin' AND status = 'active'",
@@ -313,6 +321,32 @@ impl Storage {
         rows.collect()
     }
 
+    pub fn nonzero_wallet_count(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*)
+             FROM app_wallets
+             WHERE balance_credit_micros <> 0 OR frozen_credit_micros <> 0",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn wallet_ledger_entry_count(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM app_wallet_ledger_entries",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn request_charge_ledger_entry_count(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM app_wallet_ledger_entries WHERE entry_kind = 'request_charge'",
+            [],
+            |row| row.get(0),
+        )
+    }
+
     pub fn adjust_wallet_balance(
         &self,
         ledger: &AppWalletLedgerEntry,
@@ -408,6 +442,11 @@ impl Storage {
             out.insert(owner.key_id.clone(), owner);
         }
         Ok(out)
+    }
+
+    pub fn api_key_owner_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM api_key_owners", [], |row| row.get(0))
     }
 
     pub fn list_billing_rules(&self) -> Result<Vec<BillingRule>> {

@@ -59,6 +59,7 @@ import {
   isLowQuotaUsage,
   toNullableNumber,
 } from "@/lib/utils/usage";
+import { readBillingModeLock } from "./billing-mode-lock";
 
 const DEFAULT_BACKGROUND_TASKS: BackgroundTaskSettings = {
   usagePollingEnabled: true,
@@ -1751,6 +1752,7 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
       .map((item) => asString(item))
       .filter(Boolean),
     distributionEnabled: asBoolean(source.distributionEnabled, false),
+    billingModeLock: readBillingModeLock(source.billingModeLock),
     appUsersConfigured: asBoolean(source.appUsersConfigured, false),
     appUserCount: asInteger(source.appUserCount, 0, 0),
     locale: asString(source.locale) || "zh-CN",

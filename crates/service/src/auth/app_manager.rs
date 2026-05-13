@@ -83,6 +83,15 @@ pub struct AppSessionResult {
     pub role: String,
     pub permissions: Vec<String>,
     pub distribution_enabled: bool,
+    pub billing_mode_lock: BillingModeLockResult,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingModeLockResult {
+    pub account_mode_locked: bool,
+    pub distribution_locked: bool,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -122,6 +131,13 @@ pub fn current_web_auth_mode() -> String {
 
 pub fn set_web_auth_mode(mode: &str) -> Result<String, String> {
     let normalized = normalize_web_auth_mode(Some(mode));
+    let current = current_web_auth_mode();
+    if current == WEB_AUTH_MODE_ACCOUNTS && normalized != WEB_AUTH_MODE_ACCOUNTS {
+        let lock = billing_mode_lock_status()?;
+        if lock.account_mode_locked {
+            return Err("account_billing_mode_locked".to_string());
+        }
+    }
     if normalized == WEB_AUTH_MODE_PASSWORD && !super::web_access::web_access_password_configured()
     {
         return Err("启用访问密码模式前需要先设置访问密码".to_string());
@@ -149,11 +165,84 @@ fn distribution_enabled_for_storage(storage: &Storage) -> bool {
 }
 
 pub fn set_distribution_enabled(enabled: bool) -> Result<bool, String> {
+    if enabled && current_web_auth_mode() != WEB_AUTH_MODE_ACCOUNTS {
+        return Err("distribution_requires_accounts_mode".to_string());
+    }
+    if !enabled && distribution_enabled() {
+        let lock = billing_mode_lock_status()?;
+        if lock.distribution_locked {
+            return Err("distribution_mode_locked".to_string());
+        }
+    }
     save_persisted_app_setting(
         APP_SETTING_DISTRIBUTION_ENABLED_KEY,
         Some(if enabled { "true" } else { "false" }),
     )?;
     Ok(enabled)
+}
+
+pub fn billing_mode_lock_status() -> Result<BillingModeLockResult, String> {
+    let storage = open_storage_or_error()?;
+    billing_mode_lock_status_for_storage(&storage)
+}
+
+fn billing_mode_lock_status_for_storage(
+    storage: &Storage,
+) -> Result<BillingModeLockResult, String> {
+    let reasons = billing_mode_lock_reasons(storage)?;
+    let has_reasons = !reasons.is_empty();
+    Ok(BillingModeLockResult {
+        account_mode_locked: has_reasons,
+        distribution_locked: has_reasons,
+        reasons,
+    })
+}
+
+fn billing_mode_lock_reasons(storage: &Storage) -> Result<Vec<String>, String> {
+    let mut reasons = Vec::new();
+    if storage
+        .member_app_user_count()
+        .map_err(|err| format!("read member users failed: {err}"))?
+        > 0
+    {
+        reasons.push("member_users".to_string());
+    }
+    if storage
+        .api_key_owner_count()
+        .map_err(|err| format!("read api key owners failed: {err}"))?
+        > 0
+    {
+        reasons.push("api_key_owners".to_string());
+    }
+    if storage
+        .nonzero_wallet_count()
+        .map_err(|err| format!("read wallets failed: {err}"))?
+        > 0
+    {
+        reasons.push("wallet_balance".to_string());
+    }
+    if storage
+        .wallet_ledger_entry_count()
+        .map_err(|err| format!("read wallet ledger failed: {err}"))?
+        > 0
+    {
+        reasons.push("wallet_ledger".to_string());
+    }
+    if storage
+        .user_model_group_assignment_count()
+        .map_err(|err| format!("read model group assignments failed: {err}"))?
+        > 0
+    {
+        reasons.push("model_group_assignments".to_string());
+    }
+    if storage
+        .request_charge_ledger_entry_count()
+        .map_err(|err| format!("read wallet request charges failed: {err}"))?
+        > 0
+    {
+        reasons.push("request_charges".to_string());
+    }
+    Ok(reasons)
 }
 
 pub fn app_auth_status_value() -> Result<Value, String> {
@@ -165,6 +254,7 @@ pub fn app_auth_status_value() -> Result<Value, String> {
     let active_admin_count = storage
         .active_admin_count()
         .map_err(|err| format!("read app admins failed: {err}"))?;
+    let billing_mode_lock = billing_mode_lock_status_for_storage(&storage)?;
     Ok(serde_json::json!({
         "mode": current_web_auth_mode(),
         "modeOptions": [
@@ -177,6 +267,7 @@ pub fn app_auth_status_value() -> Result<Value, String> {
         "appUserCount": user_count,
         "activeAdminCount": active_admin_count,
         "distributionEnabled": distribution_enabled(),
+        "billingModeLock": billing_mode_lock,
     }))
 }
 
@@ -211,6 +302,7 @@ pub fn app_session_result(actor: &RpcActor) -> Result<AppSessionResult, String> 
             .map(str::to_string)
             .collect(),
         distribution_enabled: distribution_enabled(),
+        billing_mode_lock: billing_mode_lock_status()?,
     })
 }
 

@@ -57,6 +57,11 @@ export const useAppStore = create<AppState>((set) => ({
     webAuthMode: "none",
     webAuthModeOptions: ["none", "password", "accounts"],
     distributionEnabled: false,
+    billingModeLock: {
+      accountModeLocked: false,
+      distributionLocked: false,
+      reasons: [],
+    },
     appUsersConfigured: false,
     appUserCount: 0,
     locale: "zh-CN",

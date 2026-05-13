@@ -36,6 +36,7 @@ export interface AppSettings {
   webAuthMode: string;
   webAuthModeOptions: string[];
   distributionEnabled: boolean;
+  billingModeLock: BillingModeLock;
   appUsersConfigured: boolean;
   appUserCount: number;
   locale: string;
@@ -73,6 +74,12 @@ export interface AppSettings {
   [key: string]: unknown;
 }
 
+export interface BillingModeLock {
+  accountModeLocked: boolean;
+  distributionLocked: boolean;
+  reasons: string[];
+}
+
 export interface CodexLatestVersionInfo {
   packageName: string;
   version: string;
@@ -88,6 +95,7 @@ export interface AccountManagerStatus {
   appUserCount: number;
   activeAdminCount: number;
   distributionEnabled: boolean;
+  billingModeLock: BillingModeLock;
 }
 
 export interface AppWallet {
@@ -136,4 +144,5 @@ export interface AppSessionResult {
   role: AppRole;
   permissions: AppPermission[];
   distributionEnabled: boolean;
+  billingModeLock: BillingModeLock;
 }

@@ -269,6 +269,13 @@ impl Storage {
         rows.collect()
     }
 
+    pub fn user_model_group_assignment_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM user_model_groups", [], |row| {
+                row.get(0)
+            })
+    }
+
     pub fn list_user_model_groups_for_user(&self, user_id: &str) -> Result<Vec<UserModelGroup>> {
         let mut stmt = self.conn.prepare(
             "SELECT user_id, group_id, status, expires_at, created_at, updated_at

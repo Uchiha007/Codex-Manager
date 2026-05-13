@@ -2639,7 +2639,7 @@ fn rpc_accepts_loopback_origin() {
 fn rpc_account_manager_assigns_key_and_bills_wallet() {
     let ctx = RpcTestContext::new("rpc-account-manager-billing");
 
-    let call_rpc =
+    let call_rpc_response =
         |id: i64, method: &str, params: Option<serde_json::Value>| -> serde_json::Value {
             let server = codexmanager_service::start_one_shot_server().expect("start server");
             let req = JsonRpcRequest {
@@ -2649,8 +2649,14 @@ fn rpc_account_manager_assigns_key_and_bills_wallet() {
                 trace: None,
             };
             let json = serde_json::to_string(&req).expect("serialize");
-            let response = post_rpc(&server.addr, &json);
-            response.get("result").cloned().expect("result")
+            post_rpc(&server.addr, &json)
+        };
+    let call_rpc =
+        |id: i64, method: &str, params: Option<serde_json::Value>| -> serde_json::Value {
+            call_rpc_response(id, method, params)
+                .get("result")
+                .cloned()
+                .expect("result")
         };
 
     let settings = call_rpc(
@@ -2772,7 +2778,6 @@ fn rpc_account_manager_assigns_key_and_bills_wallet() {
         Some(serde_json::json!({
             "name": "Member markup",
             "multiplierMillis": 1500,
-            "modelPattern": "gpt-5",
             "apiKeyId": key_id.as_str(),
             "priority": 10
         })),
@@ -2791,7 +2796,7 @@ fn rpc_account_manager_assigns_key_and_bills_wallet() {
         Some(&key_id),
         42,
         0.25,
-        Some("gpt-5"),
+        None,
         Some("default"),
         Some(r#"{"test":true}"#.to_string()),
     )
@@ -2812,4 +2817,28 @@ fn rpc_account_manager_assigns_key_and_bills_wallet() {
     assert!(owners
         .iter()
         .any(|item| item["keyId"].as_str() == Some(key_id.as_str())));
+
+    let distribution_error = call_rpc(
+        210,
+        "accountManager/distribution/set",
+        Some(serde_json::json!({
+            "enabled": false
+        })),
+    );
+    assert!(distribution_error["error"]
+        .as_str()
+        .expect("distribution error")
+        .contains("distribution_mode_locked"));
+
+    let auth_mode_error = call_rpc(
+        211,
+        "accountManager/webAuthMode/set",
+        Some(serde_json::json!({
+            "mode": "none"
+        })),
+    );
+    assert!(auth_mode_error["error"]
+        .as_str()
+        .expect("auth mode error")
+        .contains("account_billing_mode_locked"));
 }
