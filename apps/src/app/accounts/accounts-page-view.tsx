@@ -80,6 +80,7 @@ import {
   type DeleteDialogState,
   type StatusFilter,
   AccountInfoCell,
+  AccountStatusCell,
   QuotaOverviewCell,
   buildQuotaSummaryItems,
   formatAccountExportModeLabel,
@@ -481,7 +482,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
-                    {t("账号管理")}
+                    {t("号池管理")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
@@ -941,24 +942,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <div
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full",
-                              account.isAvailable ? "bg-green-500" : "bg-red-500",
-                            )}
-                          />
-                          <span
-                            className={cn(
-                              "text-[11px] font-medium",
-                              account.isAvailable
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-red-600 dark:text-red-400",
-                            )}
-                          >
-                            {t(account.availabilityText || "未知")}
-                          </span>
-                        </div>
+                        <AccountStatusCell account={account} />
                       </TableCell>
                       <TableCell className="table-sticky-action-cell">
                         <div className="table-action-cell gap-1">

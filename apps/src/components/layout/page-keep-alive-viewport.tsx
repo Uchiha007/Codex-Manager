@@ -4,6 +4,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useMemo,
   useState,
   type ComponentType,
   type LazyExoticComponent,
@@ -13,9 +14,14 @@ import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
   type TopLevelRoutePath,
+  type TopLevelRouteAccessContext,
+  getAllowedTopLevelRoutes,
+  getFirstAllowedTopLevelRoutePath,
   getTopLevelRouteLabel,
+  isTopLevelRouteAllowedForRole,
   toTopLevelRoutePath,
 } from "@/lib/app-shell/top-level-routes";
+import { useAppSession } from "@/hooks/useAppSession";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
@@ -27,10 +33,11 @@ const LAZY_PAGE_COMPONENTS: Record<
   LazyExoticComponent<ComponentType>
 > = {
   "/accounts": lazy(() => import("@/app/accounts/page")),
+  "/account-manager": lazy(() => import("@/app/account-manager/page")),
   "/aggregate-api": lazy(() => import("@/app/aggregate-api/page")),
   "/apikeys": lazy(() => import("@/app/apikeys/page")),
-  "/quota": lazy(() => import("@/app/quota/page")),
   "/models": lazy(() => import("@/app/models/page")),
+  "/model-groups": lazy(() => import("@/app/model-groups/page")),
   "/plugins": lazy(() => import("@/app/plugins/page")),
   "/logs": lazy(() => import("@/app/logs/page")),
   "/settings": lazy(() => import("@/app/settings/page")),
@@ -73,11 +80,17 @@ function PagePanelFallback({ title }: { title: string }) {
   );
 }
 
-function LazyPagePanel({ path }: { path: TopLevelRoutePath }) {
+function LazyPagePanel({
+  path,
+  access,
+}: {
+  path: TopLevelRoutePath;
+  access: TopLevelRouteAccessContext;
+}) {
   const LazyPage = path === ROOT_ROUTE_PATH ? ROOT_PAGE_COMPONENT : LAZY_PAGE_COMPONENTS[path];
 
   return (
-    <Suspense fallback={<PagePanelFallback title={getTopLevelRouteLabel(path)} />}>
+    <Suspense fallback={<PagePanelFallback title={getTopLevelRouteLabel(path, access)} />}>
       <LazyPage />
     </Suspense>
   );
@@ -98,6 +111,13 @@ export function PageKeepAliveViewport({
   const syncShellPathFromLocation = useAppStore(
     (state) => state.syncShellPathFromLocation,
   );
+  const pruneShellTabs = useAppStore((state) => state.pruneShellTabs);
+  const { data: session, isLoading: isSessionLoading } = useAppSession();
+  const role = session?.role ?? "member";
+  const routeAccess = useMemo(
+    () => ({ role, mode: session?.mode ?? null }),
+    [role, session?.mode],
+  );
 
   useEffect(() => {
     syncShellPathFromLocation(normalizedInitialPath);
@@ -115,13 +135,22 @@ export function PageKeepAliveViewport({
   }, [syncShellPathFromLocation]);
 
   useEffect(() => {
-    document.title = `${t(getTopLevelRouteLabel(currentShellPath))} - CodexManager`;
-  }, [currentShellPath, t]);
+    document.title = `${t(getTopLevelRouteLabel(currentShellPath, routeAccess))} - CodexManager`;
+  }, [currentShellPath, routeAccess, t]);
+
+  useEffect(() => {
+    if (isSessionLoading) return;
+    const allowedPaths = getAllowedTopLevelRoutes(routeAccess).map((route) => route.path);
+    pruneShellTabs(allowedPaths, getFirstAllowedTopLevelRoutePath(routeAccess));
+  }, [isSessionLoading, pruneShellTabs, routeAccess]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="relative min-h-0 flex-1">
         {openShellTabs.map((path) => {
+          if (!isTopLevelRouteAllowedForRole(path, routeAccess)) {
+            return null;
+          }
           const isActive = path === currentShellPath;
           const isInitialPanel = path === normalizedInitialPath;
 
@@ -135,7 +164,7 @@ export function PageKeepAliveViewport({
                 isActive ? "block" : "hidden",
               )}
             >
-              {isInitialPanel ? initialChildren : <LazyPagePanel path={path} />}
+              {isInitialPanel ? initialChildren : <LazyPagePanel path={path} access={routeAccess} />}
             </section>
           );
         })}
