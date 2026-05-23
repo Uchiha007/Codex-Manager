@@ -603,9 +603,15 @@ where
         .collect::<HashSet<_>>();
     match requested_source_id.as_deref() {
         Some(source_id) if !active_source_ids.contains(source_id) => {
+            let stale_upstream_models = stale_source_upstream_models(
+                storage,
+                ROUTING_SOURCE_KIND_AGGREGATE_API,
+                source_id,
+            )?;
             storage
                 .delete_model_source_routes_for_source(ROUTING_SOURCE_KIND_AGGREGATE_API, source_id)
                 .map_err(|err| format!("delete stale aggregate api source routes failed: {err}"))?;
+            cleanup_orphan_auto_catalog_models(storage, &stale_upstream_models)?;
             if apis.iter().any(|api| api.id == source_id) {
                 return Err(format!("aggregate api `{source_id}` is disabled"));
             }
@@ -689,12 +695,79 @@ fn prune_stale_aggregate_api_source_routes(
         if active_source_ids.contains(source_id.as_str()) {
             continue;
         }
+        let stale_upstream_models =
+            stale_source_upstream_models(storage, ROUTING_SOURCE_KIND_AGGREGATE_API, source_id.as_str())?;
         storage
             .delete_model_source_routes_for_source(
                 ROUTING_SOURCE_KIND_AGGREGATE_API,
                 source_id.as_str(),
             )
             .map_err(|err| format!("delete stale aggregate api source routes failed: {err}"))?;
+        cleanup_orphan_auto_catalog_models(storage, &stale_upstream_models)?;
+    }
+    Ok(())
+}
+
+fn stale_source_upstream_models(
+    storage: &Storage,
+    source_kind: &str,
+    source_id: &str,
+) -> Result<HashSet<String>, String> {
+    storage
+        .list_model_source_models(Some(source_kind), Some(source_id))
+        .map_err(|err| format!("list source models failed: {err}"))
+        .map(|models| {
+            models
+                .into_iter()
+                .map(|model| model.upstream_model)
+                .collect::<HashSet<_>>()
+        })
+}
+
+fn cleanup_orphan_auto_catalog_models(
+    storage: &Storage,
+    candidate_slugs: &HashSet<String>,
+) -> Result<(), String> {
+    if candidate_slugs.is_empty() {
+        return Ok(());
+    }
+
+    let catalog_models = storage
+        .list_model_catalog_models(MODEL_CACHE_SCOPE_DEFAULT)
+        .map_err(|err| format!("list model catalog failed: {err}"))?;
+    if catalog_models.is_empty() {
+        return Ok(());
+    }
+
+    let enabled_mappings = storage
+        .list_model_source_mappings(None)
+        .map_err(|err| format!("list model mappings failed: {err}"))?
+        .into_iter()
+        .filter(|mapping| mapping.enabled)
+        .map(|mapping| mapping.platform_model_slug)
+        .collect::<HashSet<_>>();
+
+    let remaining_source_model_slugs = storage
+        .list_model_source_models(None, None)
+        .map_err(|err| format!("list source models failed: {err}"))?
+        .into_iter()
+        .map(|model| model.upstream_model)
+        .collect::<HashSet<_>>();
+
+    for model in catalog_models {
+        if !candidate_slugs.contains(model.slug.as_str()) {
+            continue;
+        }
+        if model.source_kind != MODEL_SOURCE_KIND_REMOTE || model.user_edited {
+            continue;
+        }
+        if remaining_source_model_slugs.contains(model.slug.as_str()) {
+            continue;
+        }
+        if enabled_mappings.contains(model.slug.as_str()) {
+            continue;
+        }
+        delete_model_catalog_entry(storage, model.slug.as_str())?;
     }
     Ok(())
 }
@@ -1938,7 +2011,9 @@ fn needs_structured_backfill(rows: &[ModelCatalogModelRecord], missing_scope_row
 mod tests {
     use std::collections::BTreeMap;
 
-    use codexmanager_core::storage::{now_ts, Account, AggregateApi, ModelSourceMapping, Storage};
+    use codexmanager_core::storage::{
+        now_ts, Account, AggregateApi, ModelSourceMapping, ModelSourceModel, Storage,
+    };
     use serde_json::{json, Value};
 
     use super::{
@@ -2765,6 +2840,139 @@ mod tests {
             .list_model_source_mappings(Some("vendor-stale"))
             .expect("list mappings")
             .is_empty());
+    }
+
+    #[test]
+    fn bootstrap_aggregate_routes_cleans_orphan_auto_catalog_model() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        insert_test_aggregate_api(&storage, "agg-orphan", "disabled");
+        let now = now_ts();
+        storage
+            .upsert_model_source_model(&ModelSourceModel {
+                source_kind: ROUTING_SOURCE_KIND_AGGREGATE_API.to_string(),
+                source_id: "agg-orphan".to_string(),
+                upstream_model: "orphan-agg-model".to_string(),
+                display_name: Some("Orphan Aggregate Model".to_string()),
+                status: "available".to_string(),
+                discovery_kind: "synced".to_string(),
+                last_synced_at: Some(now),
+                extra_json: "{}".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("seed source model");
+        save_managed_model_catalog_with_storage(
+            &storage,
+            &ManagedModelCatalogResult {
+                items: vec![ManagedModelCatalogEntry {
+                    model: ModelInfo {
+                        slug: "orphan-agg-model".to_string(),
+                        display_name: "Orphan Aggregate Model".to_string(),
+                        supported_in_api: true,
+                        visibility: Some("list".to_string()),
+                        input_modalities: vec!["text".to_string()],
+                        ..Default::default()
+                    },
+                    source_kind: MODEL_SOURCE_KIND_REMOTE.to_string(),
+                    user_edited: false,
+                    sort_index: 0,
+                    updated_at: now,
+                }],
+                extra: Default::default(),
+            },
+        )
+        .expect("seed catalog model");
+
+        bootstrap_aggregate_api_model_routes(&storage).expect("bootstrap aggregate routes");
+
+        let source_models = storage
+            .list_model_source_models(Some(ROUTING_SOURCE_KIND_AGGREGATE_API), Some("agg-orphan"))
+            .expect("list source models");
+        assert!(source_models.is_empty());
+
+        let catalog_after = read_managed_model_catalog_from_storage(&storage)
+            .expect("read catalog after bootstrap");
+        assert!(
+            !catalog_after
+                .items
+                .iter()
+                .any(|item| item.model.slug == "orphan-agg-model")
+        );
+    }
+
+    #[test]
+    fn bootstrap_aggregate_routes_keeps_unrelated_remote_catalog_model() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        insert_test_aggregate_api(&storage, "agg-orphan", "disabled");
+        let now = now_ts();
+        storage
+            .upsert_model_source_model(&ModelSourceModel {
+                source_kind: ROUTING_SOURCE_KIND_AGGREGATE_API.to_string(),
+                source_id: "agg-orphan".to_string(),
+                upstream_model: "orphan-agg-model".to_string(),
+                display_name: Some("Orphan Aggregate Model".to_string()),
+                status: "available".to_string(),
+                discovery_kind: "synced".to_string(),
+                last_synced_at: Some(now),
+                extra_json: "{}".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("seed source model");
+        save_managed_model_catalog_with_storage(
+            &storage,
+            &ManagedModelCatalogResult {
+                items: vec![
+                    ManagedModelCatalogEntry {
+                        model: ModelInfo {
+                            slug: "orphan-agg-model".to_string(),
+                            display_name: "Orphan Aggregate Model".to_string(),
+                            supported_in_api: true,
+                            visibility: Some("list".to_string()),
+                            input_modalities: vec!["text".to_string()],
+                            ..Default::default()
+                        },
+                        source_kind: MODEL_SOURCE_KIND_REMOTE.to_string(),
+                        user_edited: false,
+                        sort_index: 0,
+                        updated_at: now,
+                    },
+                    ManagedModelCatalogEntry {
+                        model: ModelInfo {
+                            slug: "unrelated-remote-model".to_string(),
+                            display_name: "Unrelated Remote Model".to_string(),
+                            supported_in_api: true,
+                            visibility: Some("list".to_string()),
+                            input_modalities: vec!["text".to_string()],
+                            ..Default::default()
+                        },
+                        source_kind: MODEL_SOURCE_KIND_REMOTE.to_string(),
+                        user_edited: false,
+                        sort_index: 1,
+                        updated_at: now,
+                    },
+                ],
+                extra: Default::default(),
+            },
+        )
+        .expect("seed catalog models");
+
+        bootstrap_aggregate_api_model_routes(&storage).expect("bootstrap aggregate routes");
+
+        let catalog_after = read_managed_model_catalog_from_storage(&storage)
+            .expect("read catalog after bootstrap");
+        assert!(catalog_after
+            .items
+            .iter()
+            .any(|item| item.model.slug == "unrelated-remote-model"));
+        assert!(
+            !catalog_after
+                .items
+                .iter()
+                .any(|item| item.model.slug == "orphan-agg-model")
+        );
     }
 
     #[test]
