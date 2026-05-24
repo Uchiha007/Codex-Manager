@@ -8,6 +8,9 @@ services:
       CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS: "5000"
+      CODEXMANAGER_GATEWAY_TRACE_STDOUT: "1"
+      CODEXMANAGER_GATEWAY_ERROR_STDOUT: "1"
     volumes:
       - codexmanager-data:/data
     ports:
@@ -28,6 +31,9 @@ services:
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_NO_OPEN: "1"
+      CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS: "5000"
+      CODEXMANAGER_GATEWAY_TRACE_STDOUT: "1"
+      CODEXMANAGER_GATEWAY_ERROR_STDOUT: "1"
     volumes:
       - codexmanager-data:/data
     ports:
