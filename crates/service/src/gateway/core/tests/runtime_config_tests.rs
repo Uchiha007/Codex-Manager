@@ -112,7 +112,7 @@ fn reload_from_env_updates_timeout_and_proxy() {
     );
 }
 
-/// 函数 `reload_from_env_defaults_limits_to_unbounded_codex_friendly_values`
+/// 函数 `reload_from_env_defaults_keep_request_gate_legacy_unbounded`
 ///
 /// 作者: gaohongshun
 ///
@@ -124,7 +124,7 @@ fn reload_from_env_updates_timeout_and_proxy() {
 /// # 返回
 /// 无
 #[test]
-fn reload_from_env_defaults_limits_to_unbounded_codex_friendly_values() {
+fn reload_from_env_defaults_keep_request_gate_legacy_unbounded() {
     let _guard = crate::test_env_guard();
     let _account_guard = EnvGuard::clear(ENV_ACCOUNT_MAX_INFLIGHT);
     let _strict_guard = EnvGuard::clear(ENV_STRICT_REQUEST_PARAM_ALLOWLIST);
